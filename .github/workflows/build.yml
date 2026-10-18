@@ -57,14 +57,19 @@ jobs:
 
       - name: Enable integrated components
         run: |
-          ./scripts/config --enable CONFIG_ANDROID \
-                           --enable CONFIG_ANDROID_VENDOR_OEM_DATA \
-                           --enable CONFIG_FUSE_FS \
-                           --enable CONFIG_KSU_NEXT \
-                           --enable CONFIG_SUSFS
-          # Resolve all newly-introduced config symbols non-interactively
+          # Append component config options directly (scripts/config would
+          # trigger interactive syncconfig on the next make invocation)
+          cat >> .config <<'EOF'
+
+CONFIG_ANDROID=y
+CONFIG_ANDROID_VENDOR_OEM_DATA=y
+CONFIG_FUSE_FS=y
+CONFIG_KSU_NEXT=y
+CONFIG_SUSFS=y
+EOF
+          # Resolve all dependencies non-interactively
           yes '' | make ARCH=arm64 olddefconfig >/dev/null
-          grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS)=' .config
+          grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS|ANDROID)=' .config
 
       - name: Build kernel (Image.gz)
         run: |
