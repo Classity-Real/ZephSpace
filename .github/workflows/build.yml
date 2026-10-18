@@ -70,20 +70,11 @@ jobs:
 
       - name: Build kernel (Image.gz)
         run: |
-          # Detect which clang warning-suppression flags are supported
-          # (kernel 5.15 meets newer clang; older clang won't know them)
-          KCFLAGS=""
-          for flag in -Wno-default-const-init-field-unsafe \
-                      -Wno-uninitialized-const-pointer \
-                      -Wno-default-const-init-var-unsafe; do
-            if echo 'int main(){return 0;}' | clang -x c - -fsyntax-only $flag 2>/dev/null; then
-              KCFLAGS="$KCFLAGS $flag"
-            fi
-          done
-
+          # Note: pipeline exit code is the last command (tee), so also
+          # check the make exit code explicitly via PIPESTATUS.
           make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld \
-            KCFLAGS="$KCFLAGS" \
             -j$(nproc) Image.gz 2>&1 | tee build.log
+          test "${PIPESTATUS[0]}" -eq 0
 
       - name: Verify kernel image
         run: |
