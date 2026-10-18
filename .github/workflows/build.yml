@@ -57,7 +57,9 @@ jobs:
 
       - name: Enable integrated components
         run: |
-          ./scripts/config --enable CONFIG_FUSE_FS \
+          ./scripts/config --enable CONFIG_ANDROID \
+                           --enable CONFIG_ANDROID_VENDOR_OEM_DATA \
+                           --enable CONFIG_FUSE_FS \
                            --enable CONFIG_KSU_NEXT \
                            --enable CONFIG_SUSFS
           grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS)=' .config
@@ -65,8 +67,7 @@ jobs:
       - name: Build kernel (Image.gz)
         run: |
           make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld \
-            KCFLAGS="-include include/linux/android_buildfix.h \
-                     -Wno-default-const-init-field-unsafe \
+            KCFLAGS="-Wno-default-const-init-field-unsafe \
                      -Wno-uninitialized-const-pointer \
                      -Wno-default-const-init-var-unsafe" \
             -j$(nproc) Image.gz 2>&1 | tee build.log
