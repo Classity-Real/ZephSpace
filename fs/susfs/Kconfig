@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config SUSFS
+	tristate "Sandboxed Userspace FileSystem (SUSFS) support"
+	depends on FUSE_FS
+	help
+	  SUSFS (Sandboxed Userspace FileSystem) is a FUSE-based filesystem that
+	  lets unprivileged applications run an isolated userspace filesystem
+	  inside a dedicated mount namespace (e.g. for DroidSpace containers).
+
+	  This option registers the SUSFS kernel-side filesystem type. The
+	  actual filesystem logic is implemented by the userspace SUSFS daemon,
+	  which communicates with the kernel through /dev/fuse (CONFIG_FUSE_FS).
+
+	  To build as a loadable module, choose M here: the module will be called
+	  susfs.
+
+	  If unsure, say N.
