@@ -1,0 +1,106 @@
+name: Build ZephSpace Kernel
+
+on:
+  push:
+    branches: [ xun-t-oss ]
+  pull_request:
+    branches: [ xun-t-oss ]
+  workflow_dispatch:
+
+env:
+  KERNEL_DIR: .
+  ARCH: arm64
+  CLANG_TRIPLE: aarch64-linux-gnu-
+  CROSS_COMPILE: aarch64-linux-gnu-
+  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            bc \
+            bison \
+            flex \
+            libssl-dev \
+            libncurses-dev \
+            perl \
+            python3 \
+            git \
+            ccache \
+            curl \
+            wget \
+            xz-utils \
+            tar \
+            gzip \
+            lz4 \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            clang \
+            lld \
+            llvm
+
+      - name: Get kernel defconfig
+        run: |
+          make ARCH=arm64 defconfig
+
+      - name: Enable integrated components
+        run: |
+          ./scripts/config --enable CONFIG_FUSE_FS \
+                           --enable CONFIG_KSU_NEXT \
+                           --enable CONFIG_SUSFS
+          grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS)=' .config
+
+      - name: Build kernel (Image.gz)
+        run: |
+          make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld \
+            KCFLAGS="-Wno-default-const-init-field-unsafe \
+                     -Wno-uninitialized-const-pointer \
+                     -Wno-default-const-init-var-unsafe" \
+            -j$(nproc) Image.gz 2>&1 | tee build.log
+
+      - name: Verify kernel image
+        run: |
+          if [ -f arch/arm64/boot/Image.gz ]; then
+            echo "✓ Kernel image built successfully"
+            ls -lh arch/arm64/boot/Image.gz
+            file arch/arm64/boot/Image.gz
+          else
+            echo "✗ Kernel image not found"
+            exit 1
+          fi
+
+      - name: Upload kernel image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephspace-kernel-image
+          path: arch/arm64/boot/Image.gz
+          retention-days: 7
+
+      - name: Build AnyKernel3 flashable zip
+        if: success()
+        run: |
+          mkdir -p anykernel/kernel
+          cp arch/arm64/boot/Image.gz anykernel/kernel/
+          cd anykernel
+          zip -r9 ../zephspace-kernel.zip . -x '*.git*'
+          cd ..
+          ls -lh zephspace-kernel.zip
+
+      - name: Upload AnyKernel3 zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephspace-anykernel-zip
+          path: zephspace-kernel.zip
+          retention-days: 7
