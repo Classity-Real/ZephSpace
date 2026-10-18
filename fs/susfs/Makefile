@@ -3,4 +3,4 @@
 # Makefile for the Sandboxed Userspace FileSystem (SUSFS).
 #
 
-obj-$(CONFIG_SUSFS) += susfs/
+obj-$(CONFIG_SUSFS) += susfs.o
