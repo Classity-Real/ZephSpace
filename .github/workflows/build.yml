@@ -63,7 +63,7 @@ jobs:
                            --enable CONFIG_KSU_NEXT \
                            --enable CONFIG_SUSFS
           # Resolve all newly-introduced config symbols non-interactively
-          make ARCH=arm64 olddefconfig >/dev/null
+          yes '' | make ARCH=arm64 olddefconfig >/dev/null
           grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS)=' .config
 
       - name: Build kernel (Image.gz)
