@@ -1,0 +1,16 @@
+# Built kernel images
+*.gz
+*.dtb
+zImage
+Image
+Image.gz
+
+# Built modules
+*.ko
+
+# Flashable zips
+*.zip
+
+# Build output
+out/
+*.img
