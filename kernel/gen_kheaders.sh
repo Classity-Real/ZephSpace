@@ -9,6 +9,9 @@ outdir="$(pwd)"
 tarfile=$1
 cpio_dir=$outdir/$tarfile.tmp
 
+# Compressor executable, overridable via the XZ environment variable.
+XZ="${XZ:-xz}"
+
 dir_list="
 include/
 arch/$SRCARCH/include/
