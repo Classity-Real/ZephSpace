@@ -74,8 +74,10 @@ jobs:
 
       - name: Get kernel defconfig
         run: |
-          # GKI production config (android13-5.15 KMI)
-          make ARCH=arm64 gki_defconfig
+          # GKI production config (android13-5.15 KMI) - same tool flags as
+          # the build steps so Kconfig toolchain probes (clang/LLD/llvm-nm)
+          # resolve identically for defconfig and olddefconfig.
+          make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld gki_defconfig
 
       - name: Install KernelSU-Next v1.0.2-R5 (in-tree, official setup.sh)
         run: |
@@ -156,6 +158,11 @@ jobs:
           cat arch/arm64/configs/droidspace.config >> .config
           # Weak stubs for QCOM vendor IOMMU symbols missing in this tree
           echo 'CONFIG_ANDROID_STUBS=y' >> .config
+          # YASK builds with LTO=thin (build.config.gki.aarch64) - keep the
+          # Kconfig toolchain probes consistent (clang/LLD/llvm-nm) so LTO
+          # selection is deterministic rather than an LTO_NONE accident.
+          echo 'CONFIG_LTO_CLANG_FULL=n' >> .config
+          echo 'CONFIG_LTO_CLANG_THIN=y' >> .config
           # KernelSU-Next root support (KSU depends on OVERLAY_FS)
           echo 'CONFIG_OVERLAY_FS=y' >> .config
           echo 'CONFIG_KSU=y' >> .config
@@ -189,12 +196,13 @@ jobs:
           echo "CONFIG_LOCALVERSION=\"${LOCAL_VERSION}\"" >> .config
           echo 'CONFIG_LOCALVERSION_AUTO=n' >> .config
           # Resolve all dependencies non-interactively
-          yes '' | make ARCH=arm64 olddefconfig >/dev/null
+          yes '' | make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld olddefconfig >/dev/null
 
           echo "=== Resolved kernel config (integration snapshot) ==="
           grep -E '^CONFIG_(KSU|KSU_SUSFS|OVERLAY_FS|SYSVIPC|IPC_NS|TCP_CONG_BBR|DEFAULT_WESTWOOD|FUSE_FS|LOCALVERSION)' .config
           echo "=== Assertions ==="
           grep -qE '^CONFIG_KSU=y$' .config || { echo "::error::CONFIG_KSU not enabled"; exit 1; }
+          grep -qE '^CONFIG_LTO_CLANG_THIN=y$' .config || { echo "::error::Thin LTO not selected"; exit 1; }
           for opt in KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT \
                      KSU_SUSFS_TRY_UMOUNT KSU_SUSFS_SPOOF_UNAME KSU_SUSFS_ENABLE_LOG \
                      KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS KSU_SUSFS_SPOOF_BOOTCONFIG \
@@ -206,11 +214,14 @@ jobs:
 
       - name: Build kernel (Image.gz + Image.lz4)
         run: |
+          echo "Toolchain: $(clang --version 2>/dev/null | head -1)"
           # Pipeline exit code is the last command (tee), so also check
           # the make exit code explicitly via PIPESTATUS.
-          # KCFLAGS mirrors YASK's KBUILD_CFLAGS += -Wno-implicit-function-declaration.
+          # KCFLAGS mirrors YASK's KBUILD_CFLAGS += -Wno-implicit-function-declaration;
+          # the frame flags keep marginal stack frames (e.g. gpio_ioctl in
+          # this snapshot under newer clang) as warnings, not build failures.
           make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld \
-            KCFLAGS="-Wno-implicit-function-declaration" \
+            KCFLAGS="-Wno-implicit-function-declaration -Wno-error=frame-larger-than -Wframe-larger-than=8192" \
             -j$(nproc) Image.gz Image.lz4 2>&1 | tee build.log
           test "${PIPESTATUS[0]}" -eq 0
 
@@ -225,6 +236,12 @@ jobs:
               exit 1
             fi
           done
+          # Prove the KernelSU core made it into the shipped binary
+          zcat arch/arm64/boot/Image.gz | strings | grep -i -m1 "kernelsu" || {
+            echo "::error::KernelSU symbols not found in the built image"
+            exit 1
+          }
+          echo "KernelSU core present in built Image"
 
       - name: Upload kernel image artifacts
         uses: actions/upload-artifact@v4
