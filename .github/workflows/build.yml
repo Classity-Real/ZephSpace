@@ -53,57 +53,52 @@ jobs:
 
       - name: Get kernel defconfig
         run: |
-          make ARCH=arm64 defconfig
+          # GKI production config (android13-5.15 KMI) - same branch YASK-style
+          # custom GKI kernels build on; devices with this frozen KMI run
+          # Android 13 through 16 userland OTA'd on top.
+          make ARCH=arm64 gki_defconfig
 
       - name: Enable integrated components
         run: |
-          # Append component config options directly (scripts/config would
-          # trigger interactive syncconfig on the next make invocation)
-          echo 'CONFIG_ANDROID=y' >> .config
-          echo 'CONFIG_ANDROID_VENDOR_OEM_DATA=y' >> .config
-          echo 'CONFIG_FUSE_FS=y' >> .config
-          echo 'CONFIG_KSU_NEXT=y' >> .config
-          echo 'CONFIG_SUSFS=y' >> .config
-          # Weak stubs for Android/QCOM vendor symbols missing in this tree
+          # DroidSpaces fragment: IPC/namespace/netfilter/tmpfs ACLs plus
+          # the integrated KSU-Next/SUSFS/FUSE component configs.
+          cat arch/arm64/configs/droidspace.config >> .config
+          # Weak stubs for QCOM vendor IOMMU symbols missing in this tree
           echo 'CONFIG_ANDROID_STUBS=y' >> .config
-          # Disable Qualcomm board-specific drivers that depend on Android
-          # PMIC infrastructure not present in this standalone tree
-          echo 'CONFIG_POWER_RESET_MSM=n' >> .config
-          # Disable Qualcomm interconnect drivers that depend on Android
-          # trace infrastructure not present in this standalone tree
-          echo 'CONFIG_INTERCONNECT_QCOM=n' >> .config
           # Resolve all dependencies non-interactively
           yes '' | make ARCH=arm64 olddefconfig >/dev/null
-          grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS|ANDROID|ANDROID_STUBS)=' .config
+          grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS|ANDROID_VENDOR_HOOKS|TRACEPOINTS|ANDROID_STUBS)=' .config
 
-      - name: Build kernel (Image.gz)
+      - name: Build kernel (Image.gz + Image.lz4)
         run: |
           # Note: pipeline exit code is the last command (tee), so also
           # check the make exit code explicitly via PIPESTATUS.
-          # -Wno-implicit-function-declaration allows compilation of Android
-          # vendor hook call sites whose trace infrastructure isn't present
-          # in this standalone tree.
+          # KCFLAGS keeps the implicit-function-declaration net off while
+          # vendor hooks are real tracepoints under gki_defconfig.
           make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld \
             KCFLAGS="-Wno-implicit-function-declaration" \
-            -j$(nproc) Image.gz 2>&1 | tee build.log
+            -j$(nproc) Image.gz Image.lz4 2>&1 | tee build.log
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: Verify kernel image
         run: |
-          if [ -f arch/arm64/boot/Image.gz ]; then
-            echo "✓ Kernel image built successfully"
-            ls -lh arch/arm64/boot/Image.gz
-            file arch/arm64/boot/Image.gz
-          else
-            echo "✗ Kernel image not found"
-            exit 1
-          fi
+          for img in Image.gz Image.lz4; do
+            if [ -f arch/arm64/boot/$img ]; then
+              echo "✓ $img built successfully"
+              ls -lh arch/arm64/boot/$img
+            else
+              echo "✗ $img not found"
+              exit 1
+            fi
+          done
 
-      - name: Upload kernel image artifact
+      - name: Upload kernel image artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: zephspace-kernel-image
-          path: arch/arm64/boot/Image.gz
+          name: zephspace-kernel-images
+          path: |
+            arch/arm64/boot/Image.gz
+            arch/arm64/boot/Image.lz4
           retention-days: 7
 
       - name: Build AnyKernel3 flashable zip
