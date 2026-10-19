@@ -255,12 +255,19 @@ jobs:
       - name: Build AnyKernel3 flashable zip
         if: success()
         run: |
-          mkdir -p anykernel/kernel
-          cp arch/arm64/boot/Image.gz anykernel/kernel/
+          cp -f arch/arm64/boot/Image anykernel/Image
           cd anykernel
           zip -r9 ../zephspace-kernel.zip . -x '*.git*'
           cd ..
-          ls -lh zephspace-kernel.zip
+          unzip -l zephspace-kernel.zip | grep -q "META-INF/com/google/android/update-binary" || {
+            echo "ERROR: zip is missing META-INF/com/google/android/update-binary"
+            exit 1
+          }
+          unzip -l zephspace-kernel.zip | grep -q " tools/magiskboot" || {
+            echo "ERROR: zip is missing tools/magiskboot"
+            exit 1
+          }
+          echo "AnyKernel3 zip structure: META-INF + tools + kernel present"
 
       - name: Upload AnyKernel3 zip artifact
         uses: actions/upload-artifact@v4

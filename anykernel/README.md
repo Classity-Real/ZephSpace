@@ -1,60 +1,38 @@
-# AnyKernel3 - ZephSpace Kernel
+# ZephSpace AnyKernel3 flashable zip
 
-## Directory Structure
+Real [AnyKernel3](https://github.com/osm0sis/AnyKernel3) packaging for the ZephSpace
+GKI kernel (`android13-5.15` lineage with KernelSU-Next v1.0.2-R5 in-tree, SUSFS
+v1.5.2 and the DroidSpace kABI fix).
 
-Place your built kernel files in the appropriate directories:
+## Zip layout (as built by `.github/workflows/build.yml`)
 
 ```
-anykernel/
-├── anykernel.sh          # Installer script (do not edit unless needed)
-├── tools/
-│   └── ak3-core.sh       # Core functions (do not edit)
-├── kernel/               # Place kernel images here
-│   ├── Image.gz          # or Image, zImage, Image.gz-dtb
-│   └── dtb.img           # optional device tree blob
-├── modules/              # Place kernel modules here
-│   └── *.ko              # built kernel modules
-├── common/               # Common files (optional)
-└── README.md             # this file
+anykernel.sh                     install script (kernel-only GKI swap)
+Image                            raw kernel, copied by CI from arch/arm64/boot/Image
+META-INF/com/google/android/     update-binary (EDIFY backend) + updater-script stub
+tools/ak3-core.sh                AnyKernel3 core library
+tools/magiskboot, busybox, ...   device-side binaries
 ```
 
-## Building the Kernel
+The kernel ships **uncompressed** on purpose: `magiskboot` re-compresses it with
+the compression format detected from the stock boot image (gzip/lz4/lzma/zstd),
+so one zip covers both gz- and lz4-class devices.
 
-```bash
-# Configure for your device
-make ARCH=arm64 defconfig
+## What the installer does
 
-# Build
-make ARCH=arm64 -j$(nproc)
+1. `split_boot` — unpacks the stock boot image, skipping ramdisk extraction.
+2. `flash_boot` — replaces the kernel with `Image`, repacks with the original
+   ramdisk/dtb/dtbo and original compression, writes back to the boot partition,
+   honoring A/B slots (`IS_SLOT_DEVICE=auto`).
 
-# The built kernel image will be at:
-# arch/arm64/boot/Image.gz
-```
+No ramdisk, dtbo, or vbmeta changes are made; the device check is disabled
+(`do.devicecheck=0`) and version checks are blank, since the frozen
+android13-5.15 KMI is designed to survive userland 13→16 OTA upgrades.
 
-## Creating the Flashable Zip
+## Flashing
 
-```bash
-# Copy your built kernel image
-cp arch/arm64/boot/Image.gz anykernel/kernel/
+Flash from Magisk-patched recovery, KernelSU-Next manager (Ramdisk GKI flow), or
+TWRP-compatible recovery. A stock boot/vendor_boot backup is mandatory; reflashing
+stock images restores the device if anything goes wrong.
 
-# Copy built modules (if any)
-cp drivers/misc/ksu-next/ksu-next.ko anykernel/modules/ 2>/dev/null || true
-cp fs/susfs/susfs.ko anykernel/modules/ 2>/dev/null || true
-
-# Create the zip
-cd anykernel
-zip -r9 zephspace-kernel.zip . -x '*.git*'
-cd ..
-```
-
-## Features
-
-- KernelSU-Next root support (/dev/ksu-next)
-- DroidSpace container/desktop environment support
-- SUSFS sandboxed userspace filesystem (FUSE-based)
-
-## Requirements
-
-- Android 13+
-- ARM64 architecture
-- Custom recovery (TWRP, OrangeFox, etc.) or fastboot boot
+Requires a KernelSU-Next manager version matched to the v1.0.x kernel generation.
