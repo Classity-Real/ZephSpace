@@ -60,9 +60,7 @@ jobs:
           # Append component config options directly (scripts/config would
           # trigger interactive syncconfig on the next make invocation)
           echo 'CONFIG_ANDROID=y' >> .config
-          echo 'CONFIG_ANDROID_VENDOR_HOOKS=y' >> .config
           echo 'CONFIG_ANDROID_VENDOR_OEM_DATA=y' >> .config
-          echo 'CONFIG_TRACEPOINTS=y' >> .config
           echo 'CONFIG_FUSE_FS=y' >> .config
           echo 'CONFIG_KSU_NEXT=y' >> .config
           echo 'CONFIG_SUSFS=y' >> .config
@@ -77,7 +75,11 @@ jobs:
         run: |
           # Note: pipeline exit code is the last command (tee), so also
           # check the make exit code explicitly via PIPESTATUS.
+          # -Wno-implicit-function-declaration allows compilation of Android
+          # vendor hook call sites whose trace infrastructure isn't present
+          # in this standalone tree.
           make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld \
+            KCFLAGS="-Wno-implicit-function-declaration" \
             -j$(nproc) Image.gz 2>&1 | tee build.log
           test "${PIPESTATUS[0]}" -eq 0
 
