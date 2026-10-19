@@ -25,6 +25,10 @@ so one zip covers both gz- and lz4-class devices.
    ramdisk/dtb/dtbo and original compression, writes back to the boot partition,
    honoring A/B slots (`IS_SLOT_DEVICE=auto`).
 
+The zip targets **`boot` only** (`BLOCK=boot`). Never `init_boot` — with
+`BLOCK=auto` AK3 resolves `init_boot` first on header-v4 GKI devices and would
+write the kernel into the generic-ramdisk partition, where it does not belong.
+
 No ramdisk, dtbo, or vbmeta changes are made; the device check is disabled
 (`do.devicecheck=0`) and version checks are blank, since the frozen
 android13-5.15 KMI is designed to survive userland 13→16 OTA upgrades.

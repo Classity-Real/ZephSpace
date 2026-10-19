@@ -27,7 +27,11 @@ supported.vendorpatchlevels=
 
 ### AnyKernel install
 # boot shell variables
-BLOCK=auto;
+# BLOCK=boot: target the boot partition ONLY. With BLOCK=auto, ak3-core.sh
+# ($plistinit $plistboot) resolves init_boot FIRST on hdr v4 GKI devices
+# that have an init_boot partition — but init_boot holds only the generic
+# ramdisk, never the kernel. The kernel on GKI lives in boot, so pin it.
+BLOCK=boot;
 IS_SLOT_DEVICE=auto;
 RAMDISK_COMPRESSION=auto;
 PATCH_VBMETA_FLAG=auto;
