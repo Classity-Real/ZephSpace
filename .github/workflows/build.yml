@@ -60,7 +60,9 @@ jobs:
           # Append component config options directly (scripts/config would
           # trigger interactive syncconfig on the next make invocation)
           echo 'CONFIG_ANDROID=y' >> .config
+          echo 'CONFIG_ANDROID_VENDOR_HOOKS=y' >> .config
           echo 'CONFIG_ANDROID_VENDOR_OEM_DATA=y' >> .config
+          echo 'CONFIG_TRACEPOINTS=y' >> .config
           echo 'CONFIG_FUSE_FS=y' >> .config
           echo 'CONFIG_KSU_NEXT=y' >> .config
           echo 'CONFIG_SUSFS=y' >> .config
