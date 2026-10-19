@@ -35,6 +35,10 @@ jobs:
             flex \
             libssl-dev \
             libncurses-dev \
+            libelf-dev \
+            elfutils \
+            dwarves \
+            zlib1g-dev \
             perl \
             python3 \
             git \
