@@ -64,6 +64,9 @@ jobs:
           echo 'CONFIG_FUSE_FS=y' >> .config
           echo 'CONFIG_KSU_NEXT=y' >> .config
           echo 'CONFIG_SUSFS=y' >> .config
+          # Disable Qualcomm board-specific drivers that depend on Android
+          # PMIC infrastructure not present in this standalone tree
+          echo 'CONFIG_POWER_RESET_MSM=n' >> .config
           # Resolve all dependencies non-interactively
           yes '' | make ARCH=arm64 olddefconfig >/dev/null
           grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS|ANDROID)=' .config
