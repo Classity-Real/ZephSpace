@@ -64,6 +64,8 @@ jobs:
           echo 'CONFIG_FUSE_FS=y' >> .config
           echo 'CONFIG_KSU_NEXT=y' >> .config
           echo 'CONFIG_SUSFS=y' >> .config
+          # Weak stubs for Android/QCOM vendor symbols missing in this tree
+          echo 'CONFIG_ANDROID_STUBS=y' >> .config
           # Disable Qualcomm board-specific drivers that depend on Android
           # PMIC infrastructure not present in this standalone tree
           echo 'CONFIG_POWER_RESET_MSM=n' >> .config
@@ -72,7 +74,7 @@ jobs:
           echo 'CONFIG_INTERCONNECT_QCOM=n' >> .config
           # Resolve all dependencies non-interactively
           yes '' | make ARCH=arm64 olddefconfig >/dev/null
-          grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS|ANDROID)=' .config
+          grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS|ANDROID|ANDROID_STUBS)=' .config
 
       - name: Build kernel (Image.gz)
         run: |

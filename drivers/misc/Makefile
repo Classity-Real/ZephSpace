@@ -65,4 +65,5 @@ obj-$(CONFIG_QSEECOM_PROXY) 	+= qseecom_proxy.o
 # BSP.System - 2023.2.2 - add simtray status
 obj-$(CONFIG_SIMTRAY_STATUS) += simtray/
 obj-$(CONFIG_KSU_NEXT)          += ksu-next/
+obj-$(CONFIG_ANDROID_STUBS)     += android_stubs.o
 obj-$(CONFIG_PERF_HELPER)       += perf_helper.o

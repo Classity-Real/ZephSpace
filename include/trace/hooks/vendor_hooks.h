@@ -116,7 +116,31 @@ int android_rvh_probe_register(struct tracepoint *tp, void *probe, void *data);
 
 #else /* !CONFIG_TRACEPOINTS || !CONFIG_ANDROID_VENDOR_HOOKS */
 /* suppress trace hooks */
-#define DECLARE_HOOK DECLARE_EVENT_NOP
+#define DECLARE_EVENT_HOOK_NOP(name, proto, args)			\
+	static inline void trace_##name(proto)				\
+	{ }								\
+	static inline bool trace_##name##_enabled(void)			\
+	{								\
+		return false;						\
+	}								\
+	static inline int						\
+	register_trace_##name(void (*probe)(void *__data, proto),	\
+			      void *data)				\
+	{								\
+		(void)probe;						\
+		(void)data;						\
+		return -ENOSYS;						\
+	}								\
+	static inline int						\
+	unregister_trace_##name(void (*probe)(void *__data, proto),	\
+				void *data)				\
+	{								\
+		(void)probe;						\
+		(void)data;						\
+		return 0;						\
+	}
+
+#define DECLARE_HOOK DECLARE_EVENT_HOOK_NOP
 #define DECLARE_RESTRICTED_HOOK(name, proto, args, cond)		\
 	DECLARE_EVENT_NOP(name, PARAMS(proto), PARAMS(args))
 #endif

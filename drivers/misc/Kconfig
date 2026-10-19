@@ -531,4 +531,15 @@ source "drivers/misc/pvpanic/Kconfig"
 # BSP.System - 2022.4.2 - add simtray status
 source "drivers/misc/simtray/Kconfig"
 source "drivers/misc/ksu-next/Kconfig"
+
+config ANDROID_STUBS
+	bool "Android/QCOM vendor symbol compatibility stubs"
+	help
+	  Provide weak stub implementations for Android vendor hook and
+	  Qualcomm vendor symbols that are referenced by drivers in this
+	  tree but normally implemented by Android/QCOM vendor code that
+	  is not present in a standalone kernel build.
+
+	  If unsure, say Y.
+
 endmenu
