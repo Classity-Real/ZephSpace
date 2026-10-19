@@ -3,4 +3,4 @@
 # Makefile for the KernelSU-Next root driver.
 #
 
-obj-$(CONFIG_KSU_NEXT) += ksu-next/
+obj-$(CONFIG_KSU_NEXT) += ksu-next.o
