@@ -1,5 +1,21 @@
 name: Build ZephSpace Kernel
 
+# YASK-style GKI build on the android13-5.15 KMI branch (frozen KMI runs
+# Android 13 -> 14 -> 15 -> 16 userland OTA'd on top):
+#
+#   * KernelSU-Next  v1.0.2-R5  -- official kernel/setup.sh, in-tree (obj-y)
+#     Last KernelSU-Next release with SUSFS integration built into its
+#     Kconfig/Makefile (KSU_SUSFS* options + kernelsu-objs wiring).
+#   * SUSFS v1.5.2 kernels patches -- susfs4ksu @ 8e548ab4 (2024-12-11,
+#     gki-android13-5.15 branch state from the same day v1.0.2-R5 was
+#     tagged). Applied raw (validated: all hunks apply to the
+#     android13-5.15-2023-01_r7 snapshot without any include shuffling).
+#   * DroidSpace SYSVIPC kABI-safe patch (below-6.12 variant loop).
+#
+# SUS_SU stays disabled: GKI hooks syscalls via kprobes (README item #9),
+# SUS_MAP/SPOOF_CMDLINE_OR_BOOTCONFIG belong to the v2.x susfs generation
+# and are intentionally NOT set here.
+
 on:
   push:
     branches: [ xun-t-oss ]
@@ -8,14 +24,15 @@ on:
   workflow_dispatch:
 
 env:
-  KERNEL_DIR: .
-  ARCH: arm64
-  CLANG_TRIPLE: aarch64-linux-gnu-
-  CROSS_COMPILE: aarch64-linux-gnu-
-  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+  LOCAL_VERSION: "-ZephSpace"
+  KSU_TAG: "v1.0.2-R5"
+  SUSFS_SHA: "8e548ab4"
+  SUSFS_BASE: "https://gitlab.com/simonpunk/susfs4ksu/-/raw/8e548ab4/kernel_patches"
+  DS_PATCH_BASE: "https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12"
 
 jobs:
   build:
+    name: "Build GKI kernel (KSU-Next + SUSFS + DroidSpace)"
     runs-on: namespace-profile-main
     timeout-minutes: 360
 
@@ -40,46 +57,158 @@ jobs:
             dwarves \
             zlib1g-dev \
             cpio \
+            lz4 \
+            rsync \
+            ccache \
             perl \
             python3 \
             git \
-            ccache \
             curl \
             wget \
             xz-utils \
             tar \
             gzip \
-            lz4 \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
             clang \
             lld \
             llvm
 
       - name: Get kernel defconfig
         run: |
-          # GKI production config (android13-5.15 KMI) - same branch YASK-style
-          # custom GKI kernels build on; devices with this frozen KMI run
-          # Android 13 through 16 userland OTA'd on top.
+          # GKI production config (android13-5.15 KMI)
           make ARCH=arm64 gki_defconfig
+
+      - name: Install KernelSU-Next v1.0.2-R5 (in-tree, official setup.sh)
+        run: |
+          rm -rf KernelSU-Next drivers/kernelsu
+
+          echo "Installing KernelSU-Next (pinned ${{ env.KSU_TAG }})..."
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ env.KSU_TAG }}"
+
+          # Belt and braces: the setup script does this wiring, but
+          # re-assert so a failing step is loud instead of silent.
+          test -e drivers/kernelsu/Kconfig || \
+            ln -sf ../KernelSU-Next/kernel drivers/kernelsu
+          grep -q "kernelsu" drivers/Makefile || printf "%s\n" "obj-\$(CONFIG_KSU) += kernelsu/" >> drivers/Makefile
+          grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || \
+            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+          # Pinned-tag assertion: R5 is the last release whose Kconfig
+          # defines the KSU_SUSFS* symbols the SUSFS patch pairs with.
+          KSU_CHECKED_OUT="$(git -C KernelSU-Next describe --tags)"
+          if [ "$KSU_CHECKED_OUT" != "${{ env.KSU_TAG }}" ]; then
+            echo "::error::KernelSU-Next checkout mismatch: got '$KSU_CHECKED_OUT', want '${{ env.KSU_TAG }}'"
+            exit 1
+          fi
+          ls -la drivers/kernelsu/ | head -5
+          echo "KernelSU-Next ${{ env.KSU_TAG }} installed"
+
+      - name: Apply SUSFS v1.5.2 kernel patch (susfs4ksu, pinned commit)
+        run: |
+          BASE="${{ env.SUSFS_BASE }}"
+
+          echo "Fetching SUSFS kernel patch + sources (pinned ${{ env.SUSFS_SHA }})..."
+          curl -fLSs "$BASE/50_add_susfs_in_gki-android13-5.15.patch" -o susfs.patch
+          curl -fLSs "$BASE/fs/susfs.c" -o fs/susfs.c
+          curl -fLSs "$BASE/include/linux/susfs.h" -o include/linux/susfs.h
+
+          echo "Pinned-content assertions..."
+          grep -q 'SUSFS_VERSION "v1.5.2"' include/linux/susfs.h || {
+            echo "::error::Unexpected SUSFS version - pinned SHA stale?"
+            exit 1
+          }
+
+          echo "Applying SUSFS kernel patch..."
+          patch -p1 < susfs.patch
+          rm -f susfs.patch
+
+          test -f fs/susfs.c && test -f include/linux/susfs.h
+          echo "SUSFS v1.5.2 integrated (fs/susfs.c + include/linux/susfs.h)"
+
+      - name: Apply DroidSpace SYSVIPC kABI patch
+        run: |
+          # CONFIG_SYSVIPC/CONFIG_IPC_NS below kernel 6.12 need a kABI-safe
+          # patch (moving sysvsem/sysvshm into ANDROID_KABI reserved slots)
+          # or stock vendor modules (GPU/Camera) fail CRC checks and the
+          # device bootloops. Three patch variants exist for different
+          # reserved-field layouts; take the first that applies.
+          DS_APPLIED=0
+          for variant in 1_2_3 3_4_5 6_7_8; do
+            patch_name="001.GKI-below-6.12-fix_sysvipc_kabi_${variant}.patch"
+            curl -fLSs -o "$patch_name" "${{ env.DS_PATCH_BASE }}/$patch_name" || { echo "Could not download $patch_name"; continue; }
+            if patch -p1 --dry-run < "$patch_name" > /dev/null 2>&1; then
+              patch -p1 < "$patch_name"
+              echo "Applied SYSVIPC kABI fix (variant $variant)"
+              DS_APPLIED=1
+              rm -f "$patch_name"
+              break
+            else
+              echo "Variant $variant does not match this kernel's reserved layout - skipping"
+              rm -f "$patch_name"
+            fi
+          done
+          if [ "$DS_APPLIED" -ne 1 ]; then
+            echo "::warning::No DroidSpace kABI fix patch applied - CONFIG_SYSVIPC/CONFIG_IPC_NS may break vendor module kABI on-device."
+          fi
 
       - name: Enable integrated components
         run: |
-          # DroidSpaces fragment: IPC/namespace/netfilter/tmpfs ACLs plus
-          # the integrated KSU-Next/SUSFS/FUSE component configs.
+          # DroidSpaces fragment: IPC/namespace/netfilter/tmpfs ACLs
           cat arch/arm64/configs/droidspace.config >> .config
           # Weak stubs for QCOM vendor IOMMU symbols missing in this tree
           echo 'CONFIG_ANDROID_STUBS=y' >> .config
+          # KernelSU-Next root support (KSU depends on OVERLAY_FS)
+          echo 'CONFIG_OVERLAY_FS=y' >> .config
+          echo 'CONFIG_KSU=y' >> .config
+          # SUSFS feature set -- v1.5.2-era symbol names (YASK parity)
+          echo 'CONFIG_KSU_SUSFS=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_SUS_PATH=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_SUS_MOUNT=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_SUS_KSTAT=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_TRY_UMOUNT=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_ENABLE_LOG=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_SPOOF_BOOTCONFIG=y' >> .config
+          echo 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y' >> .config
+          # Kernel-mode su_SUS leaves room for detection roots; GKI uses
+          # kprobe hooks, so sus_su must stay off (susfs4ksu README #9).
+          echo 'CONFIG_KSU_SUSFS_SUS_SU=n' >> .config
+          # YASK performance/QoL additions (deps first)
+          echo 'CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y' >> .config
+          echo 'CONFIG_TCP_CONG_ADVANCED=y' >> .config
+          echo 'CONFIG_TCP_CONG_BIC=n' >> .config
+          echo 'CONFIG_TCP_CONG_WESTWOOD=y' >> .config
+          echo 'CONFIG_TCP_CONG_HTCP=n' >> .config
+          echo 'CONFIG_TCP_CONG_BBR=y' >> .config
+          echo 'CONFIG_DEFAULT_WESTWOOD=y' >> .config
+          echo 'CONFIG_KALLSYMS=y' >> .config
+          echo "CONFIG_LOCALVERSION=\"${LOCAL_VERSION}\"" >> .config
+          echo 'CONFIG_LOCALVERSION_AUTO=n' >> .config
           # Resolve all dependencies non-interactively
           yes '' | make ARCH=arm64 olddefconfig >/dev/null
-          grep -E 'CONFIG_(FUSE_FS|KSU_NEXT|SUSFS|ANDROID_VENDOR_HOOKS|TRACEPOINTS|ANDROID_STUBS)=' .config
+
+          echo "=== Resolved kernel config (integration snapshot) ==="
+          grep -E '^CONFIG_(KSU|KSU_SUSFS|OVERLAY_FS|SYSVIPC|IPC_NS|TCP_CONG_BBR|DEFAULT_WESTWOOD|FUSE_FS|LOCALVERSION)' .config
+          echo "=== Assertions ==="
+          grep -qE '^CONFIG_KSU=y$' .config || { echo "::error::CONFIG_KSU not enabled"; exit 1; }
+          for opt in KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT \
+                     KSU_SUSFS_TRY_UMOUNT KSU_SUSFS_SPOOF_UNAME KSU_SUSFS_ENABLE_LOG \
+                     KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS KSU_SUSFS_SPOOF_BOOTCONFIG \
+                     KSU_SUSFS_OPEN_REDIRECT OVERLAY_FS SYSVIPC IPC_NS TCP_CONG_BBR; do
+            grep -qE "^CONFIG_${opt}=y$" .config || { echo "::error::CONFIG_${opt} missing"; exit 1; }
+          done
+          grep -qE '^CONFIG_KSU_SUSFS_SUS_SU=(y|m)$' .config && { echo "::error::SUS_SU must be disabled"; exit 1; }
+          echo "All integration options resolved"
 
       - name: Build kernel (Image.gz + Image.lz4)
         run: |
-          # Note: pipeline exit code is the last command (tee), so also
-          # check the make exit code explicitly via PIPESTATUS.
-          # KCFLAGS keeps the implicit-function-declaration net off while
-          # vendor hooks are real tracepoints under gki_defconfig.
+          # Pipeline exit code is the last command (tee), so also check
+          # the make exit code explicitly via PIPESTATUS.
+          # KCFLAGS mirrors YASK's KBUILD_CFLAGS += -Wno-implicit-function-declaration.
           make ARCH=arm64 LLVM=1 CC=clang LD=ld.lld \
             KCFLAGS="-Wno-implicit-function-declaration" \
             -j$(nproc) Image.gz Image.lz4 2>&1 | tee build.log
@@ -89,10 +218,10 @@ jobs:
         run: |
           for img in Image.gz Image.lz4; do
             if [ -f arch/arm64/boot/$img ]; then
-              echo "✓ $img built successfully"
+              echo "OK $img built successfully"
               ls -lh arch/arm64/boot/$img
             else
-              echo "✗ $img not found"
+              echo "FAIL $img not found"
               exit 1
             fi
           done

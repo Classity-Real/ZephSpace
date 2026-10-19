@@ -126,7 +126,6 @@ source "fs/quota/Kconfig"
 
 source "fs/autofs/Kconfig"
 source "fs/fuse/Kconfig"
-source "fs/susfs/Kconfig"
 source "fs/overlayfs/Kconfig"
 source "fs/incfs/Kconfig"
 

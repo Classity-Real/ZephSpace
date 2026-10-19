@@ -169,3 +169,7 @@ arch/*/boot/dts/vendor
 
 # Documentation toolchain
 sphinx_*/
+
+# CI-time integration artifacts (created at build time, never committed)
+KernelSU-Next/
+drivers/kernelsu
